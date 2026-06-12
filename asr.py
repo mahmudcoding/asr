@@ -10,9 +10,17 @@ from config import (
     ASR_CHUNK_OVERLAP_SECONDS,
     ASR_CHUNK_SECONDS,
     ASR_COMPUTE_TYPE,
+    ASR_COMPRESSION_RATIO_THRESHOLD,
+    ASR_CONDITION_ON_PREVIOUS_TEXT,
     ASR_DEVICE,
     ASR_LANGUAGE,
+    ASR_LOG_PROB_THRESHOLD,
+    ASR_MAX_SAME_TIMESTAMP_WORDS,
+    ASR_MIN_WORD_DURATION_SECONDS,
     ASR_MODEL_PATH,
+    ASR_NO_SPEECH_THRESHOLD,
+    ASR_SAME_TIMESTAMP_EPSILON_SECONDS,
+    ASR_VAD_FILTER,
     CHUNKS_DIR,
 )
 from utils import normalize_apostrophes
@@ -57,6 +65,79 @@ def merge_apostrophe_words(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return merged
 
 
+def is_punctuation_only(text: str) -> bool:
+    cleaned = text.strip()
+    if not cleaned:
+        return True
+    return all(not ch.isalnum() for ch in cleaned)
+
+
+def filter_suspicious_words(words: list[dict[str, Any]], chunk_end_seconds: float) -> list[dict[str, Any]]:
+    """
+    Faster-Whisper can sometimes hallucinate words at the end of short/silent chunks,
+    especially with zero-duration timestamps such as 69.58 -> 69.58 repeated several
+    times. For production transcripts, it is safer to drop impossible timestamp words
+    than to keep invented text.
+    """
+    filtered: list[dict[str, Any]] = []
+
+    for word in words:
+        text = str(word.get("word", ""))
+        start = float(word["global_start"])
+        end = float(word["global_end"])
+        duration = end - start
+
+        if is_punctuation_only(text):
+            continue
+
+        if end <= start:
+            print(f"Dropped suspicious zero-duration ASR word: {start:.2f}->{end:.2f} | {text}")
+            continue
+
+        if duration < ASR_MIN_WORD_DURATION_SECONDS:
+            print(f"Dropped suspicious ultra-short ASR word: {start:.2f}->{end:.2f} | {text}")
+            continue
+
+        # If a word starts beyond the exported chunk end because of timestamp bugs,
+        # do not keep it.
+        if start > chunk_end_seconds + 0.05:
+            print(f"Dropped out-of-chunk ASR word: {start:.2f}->{end:.2f} | {text}")
+            continue
+
+        filtered.append(word)
+
+    if len(filtered) <= ASR_MAX_SAME_TIMESTAMP_WORDS:
+        return filtered
+
+    cleaned: list[dict[str, Any]] = []
+    i = 0
+
+    while i < len(filtered):
+        cluster = [filtered[i]]
+        j = i + 1
+
+        while j < len(filtered):
+            same_start = abs(filtered[j]["global_start"] - filtered[i]["global_start"]) <= ASR_SAME_TIMESTAMP_EPSILON_SECONDS
+            same_end = abs(filtered[j]["global_end"] - filtered[i]["global_end"]) <= ASR_SAME_TIMESTAMP_EPSILON_SECONDS
+            if not (same_start and same_end):
+                break
+            cluster.append(filtered[j])
+            j += 1
+
+        if len(cluster) > ASR_MAX_SAME_TIMESTAMP_WORDS:
+            joined = " ".join(str(item["word"]).strip() for item in cluster)
+            print(
+                f"Dropped suspicious same-timestamp ASR cluster: "
+                f"{cluster[0]['global_start']:.2f}->{cluster[0]['global_end']:.2f} | {joined}"
+            )
+        else:
+            cleaned.extend(cluster)
+
+        i = j
+
+    return cleaned
+
+
 def transcribe_audio(audio_file: str, model: WhisperModel) -> list[dict[str, Any]]:
     audio = AudioSegment.from_file(audio_file)
 
@@ -93,7 +174,11 @@ def transcribe_audio(audio_file: str, model: WhisperModel) -> list[dict[str, Any
             task="transcribe",
             beam_size=ASR_BEAM_SIZE,
             word_timestamps=True,
-            vad_filter=False,
+            vad_filter=ASR_VAD_FILTER,
+            condition_on_previous_text=ASR_CONDITION_ON_PREVIOUS_TEXT,
+            no_speech_threshold=ASR_NO_SPEECH_THRESHOLD,
+            log_prob_threshold=ASR_LOG_PROB_THRESHOLD,
+            compression_ratio_threshold=ASR_COMPRESSION_RATIO_THRESHOLD,
         )
 
         words = []
@@ -119,6 +204,7 @@ def transcribe_audio(audio_file: str, model: WhisperModel) -> list[dict[str, Any
                     }
                 )
 
+        words = filter_suspicious_words(words, chunk_end_seconds)
         words = merge_apostrophe_words(words)
 
         chunks.append(

@@ -8,7 +8,7 @@ from config import (
     MIN_MATCHED_WORDS,
     TEXT_SIMILARITY_THRESHOLD,
 )
-from utils import word_mid_time, word_text_similarity, word_time_similarity
+from utils import normalize_word, word_mid_time, word_text_similarity, word_time_similarity
 
 
 def words_are_matchable(word1: dict[str, Any], word2: dict[str, Any]) -> bool:
@@ -193,6 +193,42 @@ def is_reliable_match(match_run: list[tuple[int, int, float, float]]) -> bool:
     return True
 
 
+def word_boundary_score(word: dict[str, Any], chunk: dict[str, Any]) -> float:
+    """
+    Prefer a recognition made away from a chunk boundary. Whisper commonly clips
+    the first/last word of a chunk even when the neighboring chunk has it intact.
+    """
+    midpoint = word_mid_time(word)
+    boundary_distance = min(
+        midpoint - float(chunk["chunk_start"]),
+        float(chunk["chunk_end"]) - midpoint,
+    )
+    duration = max(0.0, float(word["global_end"]) - float(word["global_start"]))
+    text_length = len(normalize_word(str(word["word"])))
+    return boundary_distance + min(duration, 1.0) * 0.25 + min(text_length, 12) * 0.01
+
+
+def choose_overlap_seam(
+    first_chunk: dict[str, Any],
+    second_chunk: dict[str, Any],
+    first_overlap: list[dict[str, Any]],
+    second_overlap: list[dict[str, Any]],
+    best_run: list[tuple[int, int, float, float]],
+) -> tuple[int, int, str]:
+    """
+    Use the start of the reliable match as the seam, but keep whichever copy of
+    the anchor word is farther from its source chunk boundary.
+    """
+    anchor = best_run[0]
+    first_index, second_index, _, _ = anchor
+    first_score = word_boundary_score(first_overlap[first_index], first_chunk)
+    second_score = word_boundary_score(second_overlap[second_index], second_chunk)
+
+    if first_score >= second_score:
+        return first_index + 1, second_index + 1, "first"
+    return first_index, second_index, "second"
+
+
 def remove_overlaps(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for chunk_index in range(len(chunks) - 1):
         first_chunk = chunks[chunk_index]
@@ -219,11 +255,14 @@ def remove_overlaps(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
             continue
 
-        first_match_start_in_overlap = best_run[0][0]
-        second_match_start_in_overlap = best_run[0][1]
-
-        first_cut_index = first_overlap_start_index + first_match_start_in_overlap
-        second_cut_index = second_match_start_in_overlap
+        first_keep_count, second_cut_index, selected_source = choose_overlap_seam(
+            first_chunk,
+            second_chunk,
+            first_overlap,
+            second_overlap,
+            best_run,
+        )
+        first_cut_index = first_overlap_start_index + first_keep_count
 
         first_chunk["words"] = first_words[:first_cut_index]
         second_chunk["words"] = second_words[second_cut_index:]
@@ -232,7 +271,8 @@ def remove_overlaps(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
             f"Merged chunk {first_chunk['chunk_index']} -> {second_chunk['chunk_index']} | "
             f"matched_words={len(best_run)} | "
             f"first_cut={first_cut_index} | "
-            f"second_cut={second_cut_index}"
+            f"second_cut={second_cut_index} | "
+            f"seam_source={selected_source}"
         )
 
     return chunks

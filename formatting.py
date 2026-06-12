@@ -12,11 +12,11 @@ from config import (
     PARAGRAPH_TARGET_SECONDS,
     PARAGRAPH_TARGET_WORDS,
 )
-from utils import CorrectionSegment, DisplayParagraph, format_timestamp, is_sentence_like_end, normalize_spaces
+from utils import CorrectionSegment, DisplayParagraph, format_timestamp, is_sentence_like_end, join_display_texts, normalize_spaces
 
 
 def paragraph_text(segments: list[CorrectionSegment]) -> str:
-    return normalize_spaces(" ".join(segment.corrected_text.strip() for segment in segments if segment.corrected_text.strip()))
+    return join_display_texts([segment.corrected_text for segment in segments])
 
 
 def should_close_paragraph(current: list[CorrectionSegment], next_segment: CorrectionSegment | None) -> bool:

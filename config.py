@@ -26,6 +26,21 @@ ASR_COMPUTE_TYPE = "int8"
 ASR_LANGUAGE = "uz"
 ASR_BEAM_SIZE = 1
 
+# Anti-hallucination settings. These are important for short final chunks,
+# silence, music, and repeated end-of-audio phrases.
+ASR_VAD_FILTER = True
+ASR_CONDITION_ON_PREVIOUS_TEXT = False
+ASR_NO_SPEECH_THRESHOLD = 0.60
+ASR_LOG_PROB_THRESHOLD = -1.0
+ASR_COMPRESSION_RATIO_THRESHOLD = 2.4
+
+# Drop impossible / suspicious word timestamps from faster-whisper output.
+# This specifically prevents zero-duration invented tail words such as
+# many words at exactly 69.58 -> 69.58.
+ASR_MIN_WORD_DURATION_SECONDS = 0.03
+ASR_SAME_TIMESTAMP_EPSILON_SECONDS = 0.025
+ASR_MAX_SAME_TIMESTAMP_WORDS = 1
+
 # Audio is sent to Whisper in overlapping chunks. This is not the same as
 # correction/display segmentation.
 ASR_CHUNK_SECONDS = 30
@@ -66,16 +81,16 @@ MAX_WORD_TIME_DIFF_SECONDS = 1.75
 # They are based on speech timing, pauses, and safe max limits.
 
 CORRECTION_MIN_SECONDS = 3.0
-CORRECTION_TARGET_SECONDS = 8.0
-CORRECTION_MAX_SECONDS = 12.0
-CORRECTION_FORCE_SECONDS = 14.0
+CORRECTION_TARGET_SECONDS = 15.0
+CORRECTION_MAX_SECONDS = 22.0
+CORRECTION_FORCE_SECONDS = 28.0
 
-CORRECTION_MIN_WORDS = 8
-CORRECTION_TARGET_WORDS = 24
-CORRECTION_MAX_WORDS = 40
+CORRECTION_MIN_WORDS = 10
+CORRECTION_TARGET_WORDS = 45
+CORRECTION_MAX_WORDS = 70
 
-CORRECTION_TARGET_CHARS = 180
-CORRECTION_MAX_CHARS = 280
+CORRECTION_TARGET_CHARS = 380
+CORRECTION_MAX_CHARS = 700
 
 CORRECTION_GOOD_PAUSE_SECONDS = 0.70
 CORRECTION_STRONG_PAUSE_SECONDS = 1.20
@@ -86,15 +101,15 @@ CORRECTION_STRONG_PAUSE_SECONDS = 1.20
 # =============================================================================
 # Paragraphs are for user display. They are bigger than correction segments.
 
-PARAGRAPH_MIN_SECONDS = 12.0
-PARAGRAPH_TARGET_SECONDS = 28.0
-PARAGRAPH_MAX_SECONDS = 45.0
+PARAGRAPH_MIN_SECONDS = 8.0
+PARAGRAPH_TARGET_SECONDS = 18.0
+PARAGRAPH_MAX_SECONDS = 28.0
 
-PARAGRAPH_TARGET_WORDS = 80
-PARAGRAPH_MAX_WORDS = 130
-PARAGRAPH_TARGET_CHARS = 550
-PARAGRAPH_MAX_CHARS = 900
-PARAGRAPH_STRONG_PAUSE_SECONDS = 2.0
+PARAGRAPH_TARGET_WORDS = 45
+PARAGRAPH_MAX_WORDS = 75
+PARAGRAPH_TARGET_CHARS = 320
+PARAGRAPH_MAX_CHARS = 560
+PARAGRAPH_STRONG_PAUSE_SECONDS = 1.5
 
 
 # =============================================================================

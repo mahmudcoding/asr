@@ -29,8 +29,10 @@ from utils import (
     build_transcript,
     format_timestamp,
     is_sentence_like_end,
+    has_suspicious_number_rewrite,
     normalize_spaces,
     normalize_word,
+    polish_transcript_text,
     text_similarity_for_gate,
     word_pause_after,
 )
@@ -227,17 +229,21 @@ def correct_text(
 
     # Conservative safety gate: never allow broken model output to destroy text.
     if not corrected:
-        return raw_text
+        return polish_transcript_text(raw_text)
 
     if len(corrected) > max(80, len(raw_text) * 3):
         print("Warning: correction output was suspiciously long. Using raw text for this segment.")
-        return raw_text
+        return polish_transcript_text(raw_text)
+
+    if has_suspicious_number_rewrite(raw_text, corrected):
+        print("Warning: suspicious number rewrite detected. Using raw text for this segment.")
+        return polish_transcript_text(raw_text)
 
     similarity = text_similarity_for_gate(raw_text, corrected)
     if similarity < 0.25:
         print("Warning: correction output is very different from raw segment. Review this segment manually.")
 
-    return corrected
+    return polish_transcript_text(corrected)
 
 
 def correct_segments(
